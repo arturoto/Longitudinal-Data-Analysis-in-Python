@@ -1,4 +1,4 @@
-with open('VocabGrowth.txt') as file:
+with open('../Datasets/VocabGrowth.txt') as file:
 	vocab_list = file.readlines()
 
 
@@ -29,8 +29,10 @@ final_string = ''.join(final_list)
 
 print(final_string)
 
+
 file_object = open('VocabGrowth.csv', 'w')
 file_object.write(final_string)
 file_object.close()
+
 
 
