@@ -1,0 +1,19 @@
+DATA  ONE; INFILE 'c:\mixdemo\schizx1.dat' ;
+INPUT ID imps79 imps79b imps79o int tx week sweek txswk;
+
+/* get rid of observations with missing values */
+if imps79 > -9;
+
+/* get rid of weeks with very few observations */
+IF week EQ 0 OR week EQ 1 OR week EQ 3 OR week EQ 6;
+
+PROC FORMAT;
+     VALUE imps79b 0 = 'le mild' 1 = 'ge moderate';
+     VALUE tx      0 = 'placebo' 1 = 'drug';
+
+/* gee logistic regression model: unstructured */
+PROC GENMOD DESCENDING;
+  CLASS id week;
+  MODEL  imps79b = tx sweek txswk / LINK=LOGIT DIST=BIN;
+  REPEATED SUBJECT=id / WITHIN=week CORRW TYPE=UN;
+RUN;

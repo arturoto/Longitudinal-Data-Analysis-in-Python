@@ -1,0 +1,137 @@
+TITLE1 'shared parameter model of time to dropout and imps79 across time';
+DATA one; INFILE 'c:\mixdemo\schizrep.dat';
+     INPUT id imps79 week drug sex ;
+ 
+/* the coding for the variables is as follows:
+   id     = subject ID number
+   imps79 = overall severity (1=normal, ..., 7=among the most extremely ill)
+	        named with f to not interfere with baseline IMPS79
+   week   = 0,1,2,3,4,5,6 (most of the obs. are at weeks 0,1,3, and 6)
+   drug     0=placebo  1=drug (chlorpromazine, fluphenazine, or thioridazine)
+   sex      0=female   1=male
+*/
+ 
+/* compute the square root of week to linearize relationship */
+sweek = SQRT(week);
+
+/* calculate the maximum value of WEEK for each subject
+   and get drug in this aggregated dataset too            */
+PROC MEANS NOPRINT; CLASS id; VAR week drug; OUTPUT OUT=two  MAX(week drug)=maxweek drug;
+RUN;
+ 
+/* setting up imps79 across time and maxweek as one outcome vector */
+DATA daty; SET one;  outcome = imps79;   ind = 0;
+DATA datr; SET two;  outcome = maxweek;  ind = 1; IF id NE .;
+DATA all; SET daty datr; BY id; 
+
+
+/* random trend model for imps79 */
+PROC MIXED DATA=daty METHOD=ML COVTEST;
+  CLASS id;
+  MODEL outcome = drug sweek sweek*drug / SOLUTION;
+  RANDOM INTERCEPT sweek /SUB=id TYPE=UN G GCORR;
+  
+/* NLMIXED modeling of imps79 */
+PROC NLMIXED DATA=daty;
+PARMS b0=5.35 b1=.05 b2=-.34 b3=-.64  sde=.76 v0=.61 v01=.02 v1=.49;
+   z = (outcome - (b0 + b1*drug + b2*sweek + b3*drug*sweek 
+                + (SQRT(v0) + v01*sweek/SQRT(v0))*u1 
+                + SQRT(v1 - (v01*v01)/v0)*sweek*u2));
+   p = (1 / SQRT(2*3.14159*sde*sde)) * EXP(-1/2 * (z*z) / (sde*sde));
+IF (p > 1e-8) then ll = LOG(p);
+else ll = -1e100;
+MODEL outcome ~ GENERAL(ll);
+RANDOM u1 u2 ~ NORMAL([0,0], [1,0,1]) SUBJECT=id;
+RUN;
+
+/* model for time to dropout - grouped-time proportional hazards model */
+PROC LOGISTIC DATA=datr;
+MODEL outcome = drug / LINK = CLOGLOG;
+
+/* NLMIXED model for time to dropout - grouped-time proportional hazards model */
+PROC NLMIXED DATA=datr;
+PARMS a1=-.69 i1=-1.95 i2=-1.70 i3=-.99 i4=-.84 i5=-.69;
+   z = a1*drug;
+   IF (outcome=1) THEN 
+     p = 1 - EXP(0 - EXP(i1+z));
+   ELSE IF (outcome=2) THEN
+     p = (1 - EXP(0 - EXP(i2+z))) - (1 - EXP(0 - EXP(i1+z)));
+   ELSE IF (outcome=3) THEN
+     p = (1 - EXP(0 - EXP(i3+z))) - (1 - EXP(0 - EXP(i2+z)));
+   ELSE IF (outcome=4) THEN
+     p = (1 - EXP(0 - EXP(i4+z))) - (1 - EXP(0 - EXP(i3+z)));
+   ELSE IF (outcome=5) THEN
+     p = (1 - EXP(0 - EXP(i5+z))) - (1 - EXP(0 - EXP(i4+z)));
+   ELSE IF (outcome=6) THEN
+     p = 1 - (1 - EXP(0 - EXP(i5+z)));
+IF (p > 1e-8) then ll = LOG(p);
+else ll = -1e100;
+MODEL outcome ~ GENERAL(ll);
+RUN;
+
+
+/* separate modeling of imps79 and time to dropout */
+PROC NLMIXED DATA=all qpoints=5;
+PARMS b0=5.35 b1=.05 b2=-.34 b3=-.64  sde=.76 v0=.61 v01=.02 v1=.49 
+a1=-.69 i1=-1.95 i2=-1.70 i3=-.99 i4=-.84 i5=-.69;
+IF (ind EQ 0) THEN
+DO;
+   z = (outcome - (b0 + b1*drug + b2*sweek + b3*drug*sweek 
+                + (SQRT(v0) + v01*sweek/SQRT(v0))*u1 
+                + SQRT(v1 - (v01*v01)/v0)*sweek*u2));
+   p = (1 / SQRT(2*3.14159*sde*sde)) * EXP(-1/2 * (z*z) / (sde*sde));
+END;
+IF (ind EQ 1) THEN 
+DO;
+   z = a1*drug;
+   IF (outcome=1) THEN 
+     p = 1 - EXP(0 - EXP(i1+z));
+   ELSE IF (outcome=2) THEN
+     p = (1 - EXP(0 - EXP(i2+z))) - (1 - EXP(0 - EXP(i1+z)));
+   ELSE IF (outcome=3) THEN
+     p = (1 - EXP(0 - EXP(i3+z))) - (1 - EXP(0 - EXP(i2+z)));
+   ELSE IF (outcome=4) THEN
+     p = (1 - EXP(0 - EXP(i4+z))) - (1 - EXP(0 - EXP(i3+z)));
+   ELSE IF (outcome=5) THEN
+     p = (1 - EXP(0 - EXP(i5+z))) - (1 - EXP(0 - EXP(i4+z)));
+   ELSE IF (outcome=6) THEN
+     p = 1 - (1 - EXP(0 - EXP(i5+z)));
+END;
+IF (p > 1e-8) then ll = LOG(p);
+else ll = -1e100;
+MODEL outcome ~ GENERAL(ll);
+RANDOM u1 u2 ~ NORMAL([0,0], [1,0,1]) SUBJECT=id;
+RUN;
+
+/* shared parameter model for both imps79 and time to dropout */
+PROC NLMIXED DATA=all qpoints=5;
+PARMS b0=5.35 b1=.05 b2=-.34 b3=-.64  sde=.76 v0=.61 v01=.02 v1=.49 
+a1=-.69 a2=0 a3=0 a4=0 a5=0 i1=-1.95 i2=-1.70 i3=-.99 i4=-.84 i5=-.69;
+IF (ind EQ 0) THEN
+DO;
+   z = (outcome - (b0 + b1*drug + b2*sweek + b3*drug*sweek 
+                + (SQRT(v0) + v01*sweek/SQRT(v0))*u1 
+                + SQRT(v1 - (v01*v01)/v0)*sweek*u2));
+   p = (1 / SQRT(2*3.14159*sde*sde)) * EXP(-1/2 * (z*z) / (sde*sde));
+END;
+IF (ind EQ 1) THEN 
+DO;
+   z = a1*drug + a2*u1 + a3*u2 + a4*u1*drug + a5*u2*drug;
+   IF (outcome=1) THEN 
+     p = 1 - EXP(0 - EXP(i1+z));
+   ELSE IF (outcome=2) THEN
+     p = (1 - EXP(0 - EXP(i2+z))) - (1 - EXP(0 - EXP(i1+z)));
+   ELSE IF (outcome=3) THEN
+     p = (1 - EXP(0 - EXP(i3+z))) - (1 - EXP(0 - EXP(i2+z)));
+   ELSE IF (outcome=4) THEN
+     p = (1 - EXP(0 - EXP(i4+z))) - (1 - EXP(0 - EXP(i3+z)));
+   ELSE IF (outcome=5) THEN
+     p = (1 - EXP(0 - EXP(i5+z))) - (1 - EXP(0 - EXP(i4+z)));
+   ELSE IF (outcome=6) THEN
+     p = 1 - (1 - EXP(0 - EXP(i5+z)));
+END;
+IF (p > 1e-8) then ll = LOG(p);
+else ll = -1e100;
+MODEL outcome ~ GENERAL(ll);
+RANDOM u1 u2 ~ NORMAL([0,0], [1,0,1]) SUBJECT=id;
+RUN;

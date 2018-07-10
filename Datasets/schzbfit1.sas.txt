@@ -1,0 +1,43 @@
+TITLE1 'nimh schizophrenia study - estimated marginal probabilities';
+PROC IML;
+/* results from nlmixed analysis: random-intercept model */;
+
+/* covariate matrics for placebo and drug groups */;
+x0 = {1 0 0.00000 0,
+      1 0 1.00000 0,
+      1 0 1.73205 0,
+      1 0 2.44949 0};
+x1 = {1 1 0.00000 0.00000,
+      1 1 1.00000 1.00000,
+      1 1 1.73205 1.73205,
+      1 1 2.44949 2.44949};
+
+/* nlmixed estimates of covariate effects and random effect standard deviation */
+beta  = { 5.387, -0.025, -1.500, -1.015};
+varu  = { 4.478};
+
+/* marginalization of person-specific estimates */;
+pi    = ATAN(1)*4;
+nt    = 4;
+ivec  = J(nt,1,1);
+zvec  = J(nt,1,1);
+evec  = (15/16)**2 * (pi**2)/3 * ivec;
+
+/* nt by nt matrix with evec on the diagonal and zeros elsewhere */;
+emat = DIAG(evec);
+
+/* variance variance-covariance matrix of underlying latent variable */;
+vary = zvec*varu*T(zvec) + emat;
+
+/* marginalization factor */
+sdy  = SQRT(VECDIAG(vary) / VECDIAG(emat));
+z0 = (x0*beta) / sdy;
+z1 = (x1*beta) / sdy;
+
+grp0 =   1.0   / (1.0 + EXP(0 - z0));
+grp1 =   1.0   / (1.0 + EXP(0 - z1));
+
+print 'random intercept model';
+print 'marginalization of person-specific estimates';
+print 'marginal response probability for group 0', grp0 [FORMAT=8.4];
+print 'marginal response probability for group 1', grp1 [FORMAT=8.4];

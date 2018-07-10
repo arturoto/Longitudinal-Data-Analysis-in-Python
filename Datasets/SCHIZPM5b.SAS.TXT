@@ -1,0 +1,70 @@
+DATA one; INFILE 'c:\mixdemo\schizrep.dat';
+     INPUT id imps79 week drug sex ;
+
+/* the coding for the variables is as follows:
+   id     = subject id number
+   imps79 = overall severity (1=normal, ..., 7=among the most extremely ill)
+   week   = 0,1,2,3,4,5,6 (most of the obs. are at weeks 0,1,3, and 6)
+   drug     0=placebo  1=drug (chlorpromazine, fluphenazine, or thioridazine)
+   sex      0=female   1=male
+*/
+
+/* compute the square root of week to linearize relationship */
+sweek = SQRT(week);
+
+/* calculate the maximum value of week for each subject
+   (suppress the printing of the output for this procedure) */
+PROC MEANS NOPRINT; CLASS id; VAR week; OUTPUT OUT=two MAX=maxweek;
+RUN;
+
+/* determine if a subject has data at week 6
+   dropout  = 0 (for completers) or = 1 (for dropouts) */
+DATA three; SET two;
+     dropout=0;
+     IF maxweek lt 6 THEN dropout=1;
+
+/* dataset with all subjects (adding the dropout variable) */
+DATA four; MERGE one three; BY id; IF id NE .;
+
+
+/* random intercept and trend model */
+PROC MIXED DATA=four METHOD=ML COVTEST;
+  CLASS id;
+  MODEL imps79 = sweek drug sweek*drug / SOLUTION;
+  RANDOM INTERCEPT sweek /SUB=id TYPE=UN G GCORR;
+RUN;
+
+/* pattern-mixture random intercept and trend model */
+/* using marginal dropout proportion to estimate averaged results */
+PROC MIXED DATA=four METHOD=ML COVTEST;
+  CLASS id;
+  MODEL imps79 = sweek drug sweek*drug dropout dropout*sweek
+                 dropout*drug dropout*drug*sweek / SOLUTION;
+  RANDOM INTERCEPT sweek /SUB=id TYPE=UN G GCORR;
+  ESTIMATE 'avg int' intercept 1 sweek 0 drug 0 sweek*drug 0 dropout .2334
+                     dropout*sweek 0 dropout*drug 0 dropout*drug*sweek 0;
+  ESTIMATE 'avg sweek' intercept 0 sweek 1 drug 0 sweek*drug 0 dropout 0    
+                     dropout*sweek .2334 dropout*drug 0 dropout*drug*sweek 0;
+  ESTIMATE 'avg drug' intercept 0 sweek 0 drug 1 sweek*drug 0 dropout 0    
+                     dropout*sweek 0 dropout*drug .2334 dropout*drug*sweek 0;
+  ESTIMATE 'avg sweek*drug' intercept 0 sweek 0 drug 0 sweek*drug 1 dropout 0    
+                     dropout*sweek 0 dropout*drug 0 dropout*drug*sweek .2334;
+RUN;
+
+/* Pattern-mixture random intercept and trend model */
+/* using drug-specific dropout proportion to estimate averaged results */
+PROC MIXED DATA=four METHOD=ML COVTEST;
+  CLASS id;
+   MODEL imps79 = sweek drug sweek*drug dropout dropout*sweek
+                 dropout*drug dropout*drug*sweek / SOLUTION;
+  RANDOM INTERCEPT sweek /SUB=ID TYPE=UN G GCORR;
+  ESTIMATE 'avg int' intercept 1 sweek 0 drug 0 sweek*drug 0 dropout .35185
+                     dropout*sweek 0 dropout*drug 0 dropout*drug*sweek 0;
+  ESTIMATE 'avg sweek' intercept 0 sweek 1 drug 0 sweek*drug 0 dropout 0    
+                     dropout*sweek .35185 dropout*drug 0 dropout*drug*sweek 0;
+  ESTIMATE 'avg drug' intercept 0 sweek 0 drug 1 sweek*drug 0 dropout 0    
+                     dropout*sweek 0 dropout*drug .19453 dropout*drug*sweek 0;
+  ESTIMATE 'avg sweek*drug' intercept 0 sweek 0 drug 0 sweek*drug 1 dropout 0    
+                     dropout*sweek 0 dropout*drug 0 dropout*drug*sweek .19453;
+RUN;
+

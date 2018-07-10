@@ -1,0 +1,97 @@
+TITLE1 'Performing tests for MCAR based on time to dropout';
+DATA  one; INFILE 'c:\mix\schizrep.dat';
+INPUT id imps79 week tx sex;
+
+PROC FORMAT;
+     VALUE tx 0 = 'placebo' 1 = 'drug';
+
+/* calculate the maximum value of WEEK for each subject */
+PROC MEANS NOPRINT; CLASS id; VAR week tx; OUTPUT OUT=two  MAX(week tx) = maxweek drug;
+RUN;
+
+DATA three; SET two; IF id NE .;
+
+/* get crosstab of treatment group by maxweek */
+PROC FREQ;
+     TABLES drug*maxweek / chisq;
+     FORMAT drug tx. ;
+RUN;
+
+/* set up the data in multivariate form to get certain subject-level aggregates */
+DATA t0 (KEEP = id y0); SET one; IF week EQ 0; y0 = imps79;
+DATA t1 (KEEP = id y1); SET one; IF week EQ 1; y1 = imps79;
+DATA t2 (KEEP = id y2); SET one; IF week EQ 2; y2 = imps79;
+DATA t3 (KEEP = id y3); SET one; IF week EQ 3; y3 = imps79;
+DATA t4 (KEEP = id y4); SET one; IF week EQ 4; y4 = imps79;
+DATA t5 (KEEP = id y5); SET one; IF week EQ 5; y5 = imps79;
+DATA t6 (KEEP = id y6); SET one; IF week EQ 6; y6 = imps79;
+
+DATA four; MERGE t0 t1 t2 t3 t4 t5 t6 three; BY id;
+
+/* create moving average of dependent variable */
+mean0 = y0;
+mean1 = MEAN(y0,y1);
+mean2 = MEAN(y0,y1,y2);
+mean3 = MEAN(y0,y1,y2,y3);
+mean4 = MEAN(y0,y1,y2,y3,y4);
+mean5 = MEAN(y0,y1,y2,y3,y4,y5);
+
+/* setting up data for survival analysis of time to dropout */
+drop1 = .;drop2 = .; drop3 = .; drop4 = .; drop5 = .;
+IF maxweek = 1 THEN
+   DO; drop1 = 1; END;
+IF maxweek = 2 THEN
+   DO; drop1 = 0; drop2 = 1; END;
+IF maxweek = 3 THEN
+   DO; drop1 = 0; drop2 = 0; drop3 = 1; END;
+IF maxweek = 4 THEN
+   DO; drop1 = 0; drop2 = 0; drop3 = 0; drop4 = 1; END;
+IF maxweek = 5 THEN
+   DO; drop1 = 0; drop2 = 0; drop3 = 0; drop4 = 0; drop5 = 1; END;
+IF maxweek = 6 THEN
+   DO; drop1 = 0; drop2 = 0; drop3 = 0; drop4 = 0; drop5 = 0; END;
+
+/* get the data in univariate structure for grouped-time survival analysis */
+FILE 'c:\mix\schizdrop.dat';
+PUT id drop1 ' 1 0 0 0 ' drug mean1
+ /  id drop2 ' 0 1 0 0 ' drug mean2
+ /  id drop3 ' 0 0 1 0 ' drug mean3
+ /  id drop4 ' 0 0 0 1 ' drug mean4
+ /  id drop5 ' 0 0 0 0 ' drug mean5 ;
+RUN;
+
+
+/* read in data for grouped-time survival analysis of time to dropout */
+DATA DROPS; INFILE 'c:\mix\schizdrop.dat';
+INPUT id droptime t1 t2 t3 t4 drug meany;
+
+
+/* CLOG-LOG regression - proportional hazards models */
+/* main effects model with time and drug */
+PROC LOGISTIC DESCENDING;
+MODEL droptime = t1 t2 t3 t4 drug meany / LINK = CLOGLOG;
+
+/* adding week by drug interaction */
+PROC LOGISTIC DESCENDING;
+MODEL droptime = t1 t2 t3 t4 drug meany t1*drug t2*drug t3*drug t4*drug / LINK = CLOGLOG;
+
+
+/* adding drug by meany interaction */
+PROC LOGISTIC DESCENDING;
+MODEL droptime = t1 t2 t3 t4 drug meany t1*drug t2*drug t3*drug t4*drug drug*meany / LINK = CLOGLOG;
+
+
+/* adding week by meany interaction */
+PROC LOGISTIC DESCENDING;
+MODEL droptime = t1 t2 t3 t4 drug meany t1*drug t2*drug t3*drug t4*drug drug*meany
+      meany*t1 meany*t2 meany*t3 meany*t4 / LINK = CLOGLOG;
+
+/* adding 3-way interaction */
+PROC LOGISTIC DESCENDING;
+MODEL droptime = t1 t2 t3 t4 drug meany t1*drug t2*drug t3*drug t4*drug drug*meany
+      meany*t1 meany*t2 meany*t3 meany*t4 drug*meany*t1 drug*meany*t2 drug*meany*t3 drug*meany*t4
+      / LINK = CLOGLOG;
+RUN;
+
+
+
